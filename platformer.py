@@ -1,6 +1,5 @@
 import pgzrun
 from pygame import Rect
-import os
 
 # Configurações da tela
 WIDTH = 800
@@ -11,35 +10,51 @@ TITLE = "Platformer Game"
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 BLUE = (50, 150, 255)
-GREEN = (100, 255, 100)
 
 # Estado do jogo
 menu_active = True
 music_on = True
 
+# Posição fixa do chão
+GROUND_Y = HEIGHT - 50  # Define a posição Y do chão
+
 # Personagem principal
-player = Actor("actor_stop", (100, 500))  # Carrega a imagem "actor_stop.png" da pasta "images"
+player = Actor("actor_stop", (100, GROUND_Y))  # Inicia o personagem no chão
 player.speed = 5  # Velocidade de movimento
 player.vy = 0  # Velocidade vertical (para gravidade)
-player.on_ground = False  # Verifica se o jogador está no chão
+player.on_ground = True  # Começa no chão
 player.direction = "right"  # Direção inicial do personagem
+player.is_jumping = False  # Estado de pulo
 
 # Sprites para animação
 player_sprites = {
-    "parado": "actor_stop2",
-    "andando_direita": ["actor_right2"],  # Lista de sprites para andar para a direita
-    "andando_esquerda": ["actor_left2"],  # Lista de sprites para andar para a esquerda
+    "parado": "actor_stop",  # Personagem parado
+    "andando_direita": ["actor_right1", "actor_right2"],  # Animação andando para a direita
+    "andando_esquerda": ["actor_left1", "actor_left2"],  # Animação andando para a esquerda
+    "pulando_direita": "actor_jump_right",  # Personagem pulando para a direita
+    "pulando_esquerda": "actor_jump_left",  # Personagem pulando para a esquerda
 }
 player.current_sprite = 0  # Índice do sprite atual
 player.animation_speed = 10  # Velocidade da animação
 player.animation_counter = 0  # Contador para controlar a animação
 
+# Fator de escala para as plataformas
+PLATFORM_SCALE = 2  # Aumenta o tamanho da plataforma em 2x
+
 # Plataformas
 platforms = [
-    Rect((0, 550), (800, 50)),  # Chão
-    Rect((200, 400), (200, 20)),  # Plataforma 1
-    Rect((500, 300), (200, 20)),  # Plataforma 2
+    {"image": Actor("platform", (400, 550)), "rect": Rect(400 - 100 * PLATFORM_SCALE, 550 - 10, 200 * PLATFORM_SCALE, 20)},  # Plataforma 1
+    {"image": Actor("platform", (200, 400)), "rect": Rect(200 - 100 * PLATFORM_SCALE, 400 - 10, 200 * PLATFORM_SCALE, 20)},  # Plataforma 2
+    {"image": Actor("platform", (600, 300)), "rect": Rect(600 - 100 * PLATFORM_SCALE, 300 - 10, 200 * PLATFORM_SCALE, 20)},  # Plataforma 3
 ]
+
+# Aplica o fator de escala às plataformas
+for platform in platforms:
+    platform["image"].scale = PLATFORM_SCALE
+
+# Chão
+ground = {"image": Actor("ground", (WIDTH // 2, GROUND_Y)), "rect": Rect(0, GROUND_Y - 10, WIDTH, 20)}
+platforms.append(ground)
 
 # Função para desenhar o menu
 def draw_menu():
@@ -67,8 +82,8 @@ def draw():
     else:
         screen.fill(BLUE)
         for platform in platforms:
-            screen.draw.filled_rect(platform, GREEN)
-        player.draw()  # Desenha o personagem
+            platform["image"].draw()
+        player.draw()
 
 # Função para lidar com cliques do mouse
 def on_mouse_down(pos):
@@ -82,11 +97,29 @@ def on_mouse_down(pos):
         elif btn_music.collidepoint(pos):
             music_on = not music_on
             if music_on:
-                music.unpause()  # Retoma a música
+                music.unpause()
             else:
-                music.pause()  # Pausa a música
+                music.pause()
         elif btn_exit.collidepoint(pos):
             exit()
+
+# Função para verificar colisão com as plataformas
+def check_collision():
+    global player
+
+    player.on_ground = False
+    player_rect = Rect(player.x - player.width / 2, player.y - player.height / 2, player.width, player.height)
+
+    for platform in platforms:
+        if player_rect.colliderect(platform["rect"]):
+            if player.vy > 0 and player_rect.bottom >= platform["rect"].top:
+                player.y = platform["rect"].top - player.height / 2
+                player.vy = 0
+                player.on_ground = True
+                player.is_jumping = False  # Personagem tocou o chão, não está mais pulando
+            elif player.vy < 0 and player_rect.top <= platform["rect"].bottom:
+                player.y = platform["rect"].bottom + player.height / 2
+                player.vy = 0
 
 # Função para atualizar o estado do jogo
 def update():
@@ -94,40 +127,53 @@ def update():
 
     if menu_active:
         if music_on:
-            if not music.is_playing("background_music"):  # Verifica se a música não está tocando
-                music.play("background_music")  # Toca a música (sem a extensão .mp3)
+            if not music.is_playing("background_music"):
+                music.play("background_music")
         else:
-            if music.is_playing("background_music"):  # Verifica se a música está tocando
-                music.pause()  # Pausa a música
+            if music.is_playing("background_music"):
+                music.pause()
     else:
-        # Movimento do personagem
-        if keyboard.left:
+        # Verifica se o personagem está no chão e a tecla de pulo foi pressionada
+        if player.on_ground and keyboard.space:
+            player.vy = -15
+            player.is_jumping = True  # Personagem está pulando
+            if player.direction == "right":
+                animate_player("pulando_direita")
+            else:
+                animate_player("pulando_esquerda")
+        
+        # Movimento para a esquerda
+        elif keyboard.left:
             player.x -= player.speed
             player.direction = "left"
-            animate_player("andando_esquerda")
+            if not player.is_jumping:  # Só anima andar se não estiver pulando
+                animate_player("andando_esquerda")
+        
+        # Movimento para a direita
         elif keyboard.right:
             player.x += player.speed
             player.direction = "right"
-            animate_player("andando_direita")
+            if not player.is_jumping:  # Só anima andar se não estiver pulando
+                animate_player("andando_direita")
+        
+        # Personagem parado (nenhuma tecla pressionada)
         else:
-            animate_player("parado")  # Personagem parado
+            if not player.is_jumping:  # Só anima parado se não estiver pulando
+                animate_player("parado")
 
-        # Gravidade
-        player.vy += 1  # Aumenta a velocidade vertical (simula gravidade)
-        player.y += player.vy  # Aplica a velocidade vertical
+        # Aplica gravidade
+        player.vy += 1
+        player.y += player.vy
 
         # Verifica colisão com as plataformas
-        player.on_ground = False
-        for platform in platforms:
-            # Verifica se o personagem está caindo e se a parte inferior do personagem está prestes a ultrapassar o topo da plataforma
-            if player.vy > 0 and player.colliderect(platform) and player.bottom >= platform.top:
-                player.y = platform.top - player.height  # Ajusta a posição do personagem para ficar em cima da plataforma
-                player.vy = 0  # Zera a velocidade vertical
-                player.on_ground = True
+        check_collision()
 
-        # Pulo
-        if player.on_ground and keyboard.space:
-            player.vy = -15  # Velocidade do pulo
+        # Fixa o personagem no chão
+        if player.y >= GROUND_Y - player.height / 2:
+            player.y = GROUND_Y - player.height / 2
+            player.vy = 0
+            player.on_ground = True
+            player.is_jumping = False  # Personagem tocou o chão, não está mais pulando
 
 # Função para animar o personagem
 def animate_player(state):
@@ -135,6 +181,10 @@ def animate_player(state):
 
     if state == "parado":
         player.image = player_sprites["parado"]
+    elif state == "pulando_direita":
+        player.image = player_sprites["pulando_direita"]
+    elif state == "pulando_esquerda":
+        player.image = player_sprites["pulando_esquerda"]
     else:
         player.animation_counter += 1
         if player.animation_counter >= player.animation_speed:
@@ -143,7 +193,7 @@ def animate_player(state):
             player.image = player_sprites[state][player.current_sprite]
 
 # Inicializa a música
-music.play("background_music")  # Toca a música (sem a extensão .mp3)
+music.play("background_music")
 
 # Inicia o jogo
 pgzrun.go()
